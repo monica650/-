@@ -4,77 +4,81 @@ import { useNotifications } from './hooks/useNotifications';
 import { SetupScreen } from './components/SetupScreen';
 import { Dashboard } from './components/Dashboard';
 import { MaterialsScreen } from './components/MaterialsScreen';
-import { NewTaskScreen } from './components/NewTaskScreen';
-import { FocusScreen } from './components/FocusScreen';
+import { NewProjectScreen } from './components/NewProjectScreen';
+import { TodayScreen } from './components/TodayScreen';
+import { ProjectScreen } from './components/ProjectScreen';
 import { SettingsScreen } from './components/SettingsScreen';
-import type { View, Task } from './types';
+import type { View, Project } from './types';
+import { getCurrentDayNum } from './hooks/useStore';
 
 export default function App() {
-  const {
-    store,
-    setApiKey,
-    addMaterial,
-    deleteMaterial,
-    addTask,
-    completeSubTask,
-    deleteTask,
-    setReminder,
-  } = useStore();
-
+  const { store, setApiKey, addMaterial, deleteMaterial, addProject, completeTask, setTaskUrl, deleteProject, setReminder } = useStore();
   const [view, setView] = useState<View>(store.apiKey ? 'dashboard' : 'setup');
-  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [focusDayNum, setFocusDayNum] = useState<number | null>(null);
 
   useNotifications(store.reminderEnabled, store.reminderTime);
 
-  const currentTask = focusTaskId ? store.tasks.find(t => t.id === focusTaskId) ?? null : null;
+  const activeProject: Project | null = activeProjectId
+    ? store.projects.find(p => p.id === activeProjectId) ?? null
+    : null;
 
-  function handleSaveApiKey(key: string) {
-    setApiKey(key);
-    setView('dashboard');
+  function goToday(projectId: string) {
+    setActiveProjectId(projectId);
+    setFocusDayNum(null);
+    setView('today');
   }
 
-  function handleFocus(taskId: string) {
-    setFocusTaskId(taskId);
-    setView('focus');
+  function goProject(projectId: string) {
+    setActiveProjectId(projectId);
+    setView('project');
   }
 
-  function handleTaskCreated(task: Task) {
-    addTask(task);
-    setFocusTaskId(task.id);
-    setView('focus');
+  function handleProjectCreated(project: Project) {
+    addProject(project);
+    setActiveProjectId(project.id);
+    setFocusDayNum(null);
+    setView('today');
   }
 
-  if (view === 'setup' || !store.apiKey) {
-    return <SetupScreen onSave={handleSaveApiKey} />;
+  if (!store.apiKey || view === 'setup') {
+    return <SetupScreen onSave={key => { setApiKey(key); setView('dashboard'); }} />;
   }
 
   if (view === 'materials') {
-    return (
-      <MaterialsScreen
-        materials={store.materials}
-        onAdd={addMaterial}
-        onDelete={deleteMaterial}
-        onBack={() => setView('dashboard')}
-      />
-    );
+    return <MaterialsScreen materials={store.materials} onAdd={addMaterial} onDelete={deleteMaterial} onBack={() => setView('dashboard')} />;
   }
 
-  if (view === 'new-task') {
+  if (view === 'new-project') {
     return (
-      <NewTaskScreen
+      <NewProjectScreen
         apiKey={store.apiKey}
         materials={store.materials}
         onBack={() => setView('dashboard')}
-        onTaskCreated={handleTaskCreated}
+        onProjectCreated={handleProjectCreated}
       />
     );
   }
 
-  if (view === 'focus' && currentTask) {
+  if (view === 'today' && activeProject) {
+    const dayNum = focusDayNum ?? getCurrentDayNum(activeProject);
+    const projectWithDay = { ...activeProject };
     return (
-      <FocusScreen
-        task={currentTask}
-        onComplete={subtaskId => completeSubTask(currentTask.id, subtaskId)}
+      <TodayScreen
+        project={{ ...projectWithDay, days: projectWithDay.days }}
+        onComplete={(dn, taskId) => completeTask(activeProject.id, dn, taskId)}
+        onSetUrl={(dn, taskId, url) => setTaskUrl(activeProject.id, dn, taskId, url)}
+        onBack={() => setView('dashboard')}
+        key={dayNum}
+      />
+    );
+  }
+
+  if (view === 'project' && activeProject) {
+    return (
+      <ProjectScreen
+        project={activeProject}
+        onGoToDay={dn => { setFocusDayNum(dn); setView('today'); }}
         onBack={() => setView('dashboard')}
       />
     );
@@ -95,12 +99,13 @@ export default function App() {
 
   return (
     <Dashboard
-      tasks={store.tasks}
-      onNewTask={() => setView('new-task')}
-      onFocus={handleFocus}
+      projects={store.projects}
+      onNewProject={() => setView('new-project')}
+      onToday={goToday}
+      onProject={goProject}
       onMaterials={() => setView('materials')}
       onSettings={() => setView('settings')}
-      onDeleteTask={deleteTask}
+      onDeleteProject={deleteProject}
     />
   );
 }

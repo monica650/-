@@ -9,14 +9,7 @@ interface Props {
   onBack: () => void;
 }
 
-export function SettingsScreen({
-  apiKey,
-  reminderEnabled,
-  reminderTime,
-  onSaveApiKey,
-  onSaveReminder,
-  onBack,
-}: Props) {
+export function SettingsScreen({ apiKey, reminderEnabled, reminderTime, onSaveApiKey, onSaveReminder, onBack }: Props) {
   const [key, setKey] = useState(apiKey);
   const [enabled, setEnabled] = useState(reminderEnabled);
   const [time, setTime] = useState(reminderTime);
@@ -26,18 +19,13 @@ export function SettingsScreen({
     setEnabled(val);
     if (val && Notification.permission === 'default') {
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') {
-        setEnabled(false);
-        alert('请在浏览器设置中允许通知权限');
-        return;
-      }
+      if (perm !== 'granted') { setEnabled(false); alert('请在浏览器设置中允许通知权限'); return; }
     }
     onSaveReminder(val, time);
   }
 
   function handleSave() {
-    const trimmed = key.trim();
-    if (trimmed) onSaveApiKey(trimmed);
+    if (key.trim()) onSaveApiKey(key.trim());
     onSaveReminder(enabled, time);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -54,6 +42,9 @@ export function SettingsScreen({
       <main className="form-main">
         <div className="field">
           <label>DeepSeek API Key</label>
+          <p className="field-hint" style={{ marginBottom: '0.5rem' }}>
+            在 platform.deepseek.com 获取，使用 <strong>deepseek-reasoner</strong> (R1) 模型
+          </p>
           <input
             type="password"
             value={key}
@@ -76,17 +67,12 @@ export function SettingsScreen({
               <input
                 type="time"
                 value={time}
-                onChange={e => {
-                  setTime(e.target.value);
-                  onSaveReminder(true, e.target.value);
-                }}
+                onChange={e => { setTime(e.target.value); onSaveReminder(true, e.target.value); }}
                 className="time-input"
               />
             )}
           </div>
-          {enabled && (
-            <p className="field-hint">每天 {time} 会弹出浏览器通知提醒你</p>
-          )}
+          {enabled && <p className="field-hint">每天 {time} 弹出浏览器通知提醒你</p>}
         </div>
 
         <button className="btn-primary" onClick={handleSave}>
