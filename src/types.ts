@@ -5,21 +5,36 @@ export interface Material {
   createdAt: number;
 }
 
-export interface SubTask {
+export interface DailyTask {
   id: string;
   title: string;
-  description: string;
   estimatedMinutes: number;
   completed: boolean;
-  completedAt?: number;
-  subtasks: SubTask[];
+  isBonus: boolean;
 }
 
-export interface Task {
+export interface Day {
+  dayNum: number;
+  phase: string;
+  minTasks: DailyTask[];
+  bonusTasks: DailyTask[];
+}
+
+export interface Phase {
+  title: string;
+  startDay: number;
+  endDay: number;
+  description: string;
+}
+
+export interface Project {
   id: string;
   title: string;
+  totalDays: number;
+  startDate: string;
+  phases: Phase[];
+  days: Day[];
   materialIds: string[];
-  subtasks: SubTask[];
   createdAt: number;
   status: 'active' | 'completed';
 }
@@ -27,7 +42,7 @@ export interface Task {
 export interface Store {
   apiKey: string;
   materials: Material[];
-  tasks: Task[];
+  projects: Project[];
   reminderEnabled: boolean;
   reminderTime: string;
 }
@@ -36,6 +51,7 @@ export type View =
   | 'setup'
   | 'dashboard'
   | 'materials'
-  | 'new-task'
-  | 'focus'
+  | 'new-project'
+  | 'project'
+  | 'today'
   | 'settings';

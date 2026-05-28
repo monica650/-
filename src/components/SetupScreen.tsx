@@ -11,8 +11,8 @@ export function SetupScreen({ onSave }: Props) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = key.trim();
-    if (!trimmed.startsWith('sk-')) {
-      setError('API Key 格式不对，应该以 sk- 开头');
+    if (trimmed.length < 10) {
+      setError('API Key 好像太短了，请重新粘贴');
       return;
     }
     onSave(trimmed);
@@ -23,32 +23,29 @@ export function SetupScreen({ onSave }: Props) {
       <div className="setup-card">
         <div className="setup-icon">🧩</div>
         <h1>一步一步</h1>
-        <p className="setup-subtitle">专为 ADHD 设计的任务拆解工具</p>
+        <p className="setup-subtitle">专为 ADHD 设计的每日任务规划工具</p>
 
         <div className="setup-steps">
           <div className="setup-step">
             <span className="step-num">1</span>
-            <span>访问 <strong>platform.deepseek.com</strong> 注册账号</span>
+            <span>打开 <strong>aistudio.google.com</strong>（需能访问 Google）</span>
           </div>
           <div className="setup-step">
             <span className="step-num">2</span>
-            <span>进入「API Keys」，创建一个新 Key</span>
+            <span>点右上角「Get API key」→「Create API key」</span>
           </div>
           <div className="setup-step">
             <span className="step-num">3</span>
-            <span>充值 ¥10（够用很久），粘贴到下方</span>
+            <span>复制 Key，粘贴到下方。免费，无需充值</span>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="setup-form">
           <input
             type="password"
-            placeholder="sk-xxxxxxxxxxxxxxxx"
+            placeholder="AIza..."
             value={key}
-            onChange={e => {
-              setKey(e.target.value);
-              setError('');
-            }}
+            onChange={e => { setKey(e.target.value); setError(''); }}
             className="key-input"
             autoFocus
           />
@@ -58,7 +55,7 @@ export function SetupScreen({ onSave }: Props) {
           </button>
         </form>
 
-        <p className="setup-note">Key 只存在你的浏览器本地，不会上传到任何服务器</p>
+        <p className="setup-note">Key 只存在你的浏览器本地，不会上传任何服务器</p>
       </div>
     </div>
   );

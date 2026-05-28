@@ -1,12 +1,12 @@
 import { useState, useCallback } from 'react';
-import type { Store, Material, Task, SubTask } from '../types';
+import type { Store, Material, Project, DailyTask } from '../types';
 
-const STORAGE_KEY = 'adhd-task-breaker';
+const STORAGE_KEY = 'adhd-planner-v2';
 
 const defaultStore: Store = {
   apiKey: '',
   materials: [],
-  tasks: [],
+  projects: [],
   reminderEnabled: false,
   reminderTime: '09:00',
 };
@@ -54,45 +54,35 @@ export function useStore() {
     });
   }, []);
 
-  const addTask = useCallback((task: Task) => {
+  const addProject = useCallback((project: Project) => {
     setStore(prev => {
-      const next = { ...prev, tasks: [task, ...prev.tasks] };
+      const next = { ...prev, projects: [project, ...prev.projects] };
       save(next);
       return next;
     });
   }, []);
 
-  const updateTask = useCallback((taskId: string, updater: (task: Task) => Task) => {
+  const completeTask = useCallback((projectId: string, dayNum: number, taskId: string) => {
     setStore(prev => {
       const next = {
         ...prev,
-        tasks: prev.tasks.map(t => (t.id === taskId ? updater(t) : t)),
-      };
-      save(next);
-      return next;
-    });
-  }, []);
-
-  const completeSubTask = useCallback((taskId: string, subtaskId: string) => {
-    function markDone(subtasks: SubTask[]): SubTask[] {
-      return subtasks.map(st => {
-        if (st.id === subtaskId) return { ...st, completed: true, completedAt: Date.now() };
-        if (st.subtasks.length > 0) return { ...st, subtasks: markDone(st.subtasks) };
-        return st;
-      });
-    }
-
-    setStore(prev => {
-      const next = {
-        ...prev,
-        tasks: prev.tasks.map(t => {
-          if (t.id !== taskId) return t;
-          const updated = { ...t, subtasks: markDone(t.subtasks) };
-          const leaves = getLeafSubtasks(updated.subtasks);
-          if (leaves.every(l => l.completed)) {
-            updated.status = 'completed';
-          }
-          return updated;
+        projects: prev.projects.map(p => {
+          if (p.id !== projectId) return p;
+          const updated = {
+            ...p,
+            days: p.days.map(d => {
+              if (d.dayNum !== dayNum) return d;
+              return {
+                ...d,
+                minTasks: d.minTasks.map(t => t.id === taskId ? { ...t, completed: true } : t),
+                bonusTasks: d.bonusTasks.map(t => t.id === taskId ? { ...t, completed: true } : t),
+              };
+            }),
+          };
+          const allDone = updated.days.every(d =>
+            d.minTasks.every(t => t.completed)
+          );
+          return { ...updated, status: allDone ? 'completed' as const : 'active' as const };
         }),
       };
       save(next);
@@ -100,9 +90,9 @@ export function useStore() {
     });
   }, []);
 
-  const deleteTask = useCallback((taskId: string) => {
+  const deleteProject = useCallback((projectId: string) => {
     setStore(prev => {
-      const next = { ...prev, tasks: prev.tasks.filter(t => t.id !== taskId) };
+      const next = { ...prev, projects: prev.projects.filter(p => p.id !== projectId) };
       save(next);
       return next;
     });
@@ -118,36 +108,38 @@ export function useStore() {
     setApiKey,
     addMaterial,
     deleteMaterial,
-    addTask,
-    updateTask,
-    completeSubTask,
-    deleteTask,
+    addProject,
+    completeTask,
+    deleteProject,
     setReminder,
   };
 }
 
-export function getLeafSubtasks(subtasks: SubTask[]): SubTask[] {
-  const leaves: SubTask[] = [];
-  function walk(sts: SubTask[]) {
-    for (const st of sts) {
-      if (st.subtasks.length === 0) {
-        leaves.push(st);
-      } else {
-        walk(st.subtasks);
-      }
-    }
+export function getCurrentDayNum(project: Project): number {
+  const start = new Date(project.startDate + 'T00:00:00');
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const diff = Math.floor((now.getTime() - start.getTime()) / 86400000);
+  return Math.max(1, Math.min(diff + 1, project.totalDays));
+}
+
+export function getTodayData(project: Project) {
+  const dayNum = getCurrentDayNum(project);
+  return project.days.find(d => d.dayNum === dayNum) ?? null;
+}
+
+export function getProjectProgress(project: Project): number {
+  let total = 0;
+  let done = 0;
+  for (const d of project.days) {
+    total += d.minTasks.length;
+    done += d.minTasks.filter(t => t.completed).length;
   }
-  walk(subtasks);
-  return leaves;
+  if (total === 0) return 0;
+  return (done / total) * 100;
 }
 
-export function getProgress(task: Task): number {
-  const leaves = getLeafSubtasks(task.subtasks);
-  if (leaves.length === 0) return 0;
-  return (leaves.filter(l => l.completed).length / leaves.length) * 100;
-}
-
-export function getNextLeaf(task: Task): SubTask | null {
-  const leaves = getLeafSubtasks(task.subtasks);
-  return leaves.find(l => !l.completed) ?? null;
+export function getDayProgress(day: { minTasks: DailyTask[] }): number {
+  if (day.minTasks.length === 0) return 0;
+  return (day.minTasks.filter(t => t.completed).length / day.minTasks.length) * 100;
 }
