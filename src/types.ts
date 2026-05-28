@@ -11,6 +11,7 @@ export interface DailyTask {
   estimatedMinutes: number;
   completed: boolean;
   isBonus: boolean;
+  resourceUrl?: string;
 }
 
 export interface Day {

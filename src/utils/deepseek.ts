@@ -1,79 +1,72 @@
-import type { Material, SubTask } from '../types';
+import type { Material, Phase, Day, DailyTask } from '../types';
 
 const BASE_URL = 'https://api.deepseek.com/v1';
 
-function uid() {
+function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-function buildPrompt(taskTitle: string, materials: Material[]): string {
-  const materialsSection =
-    materials.length > 0
-      ? materials
-          .map(m => `【${m.name}】\n${m.content}`)
-          .join('\n\n---\n\n')
-      : '（无参考资料）';
+function extractJson(text: string): string {
+  // Strip markdown code fences
+  const fenced = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenced) return fenced[1].trim();
+  // Find outermost JSON object
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1) return text.slice(start, end + 1);
+  return text;
+}
 
-  return `你是一位专业的ADHD教练，擅长把大任务拆解成极小的可执行步骤。
+export async function createProjectPlan(
+  apiKey: string,
+  title: string,
+  totalDays: number,
+  materials: Material[],
+  onStatus: (msg: string) => void
+): Promise<{ title: string; phases: Phase[]; days: Day[] }> {
+  const materialsSection = materials.length > 0
+    ? materials.map(m => `【${m.name}】\n${m.content}`).join('\n\n---\n\n')
+    : '（无参考资料，根据通用经验规划）';
 
-参考资料（根据这些资料让拆解更准确具体）：
+  const effectiveDays = Math.min(totalDays, 60);
+
+  const prompt = `你是专业的ADHD学习教练，把大项目拆成每日清单。
+
+参考资料：
 ---
 ${materialsSection}
 ---
 
-需要拆解的任务：
-${taskTitle}
+项目：${title}
+总天数：${effectiveDays}天
 
-拆解要求：
-1. 每个最小子任务不超过 10-15 分钟
-2. 第一个子任务必须是最简单、门槛最低的步骤，让人立刻能开始
-3. 步骤要极度具体，不能有"思考一下"或"研究一下"这类模糊描述
-4. 按照逻辑顺序分成 2-4 个父任务，每个父任务下有 3-6 个子任务
-5. 语言简单直接，充满鼓励
+要求：
+1. 划分3-5个阶段（phases），每阶段有名称/起止天/简介
+2. 每天安排：
+   - minTasks（今日必做）2-3个，每个≤15分钟，极度具体可执行
+   - bonusTasks（加分任务）1-2个
+3. 第1天第1个任务：5分钟内能完成的最简单入门步骤
+4. 任务必须具体："打开XX找到XXX练习"而不是"了解XXX"
+5. 循序渐进，从最简单开始
+${totalDays > 30 ? `6. 第${Math.min(30, effectiveDays)}天后可改为周目标形式` : ''}
 
-只返回 JSON，不要任何 Markdown 或解释，格式如下：
+返回纯JSON（不要markdown代码块，不要注释）：
 {
-  "title": "任务名称",
-  "subtasks": [
+  "title": "项目名",
+  "phases": [
+    {"title": "阶段名", "startDay": 1, "endDay": 7, "description": "目标描述"}
+  ],
+  "days": [
     {
-      "title": "父任务名称",
-      "description": "这个阶段要完成什么",
-      "estimatedMinutes": 45,
-      "subtasks": [
-        {
-          "title": "具体小步骤",
-          "description": "详细说明做什么，越具体越好",
-          "estimatedMinutes": 10,
-          "subtasks": []
-        }
-      ]
+      "day": 1,
+      "phase": "阶段名",
+      "minTasks": [{"title": "具体任务", "estimatedMinutes": 10}],
+      "bonusTasks": [{"title": "加分任务", "estimatedMinutes": 15}]
     }
   ]
 }`;
-}
 
-function parseSubtasks(raw: unknown[]): SubTask[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item: unknown) => {
-    const obj = item as Record<string, unknown>;
-    return {
-      id: uid(),
-      title: String(obj.title ?? ''),
-      description: String(obj.description ?? ''),
-      estimatedMinutes: Number(obj.estimatedMinutes ?? 15),
-      completed: false,
-      subtasks: parseSubtasks((obj.subtasks as unknown[]) ?? []),
-    };
-  });
-}
-
-export async function breakdownTask(
-  apiKey: string,
-  taskTitle: string,
-  materials: Material[],
-  onChunk: (text: string) => void
-): Promise<{ title: string; subtasks: SubTask[] }> {
-  const prompt = buildPrompt(taskTitle, materials);
+  onStatus('DeepSeek R1 正在规划你的学习计划...');
 
   const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -82,55 +75,60 @@ export async function breakdownTask(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'deepseek-chat',
+      model: 'deepseek-reasoner',
       messages: [{ role: 'user', content: prompt }],
-      stream: true,
-      temperature: 0.7,
-      max_tokens: 4000,
+      stream: false,
+      temperature: 0.6,
+      max_tokens: 8000,
     }),
   });
 
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`DeepSeek API 错误 (${response.status}): ${err}`);
+    const errText = await response.text();
+    let errMsg = `DeepSeek API 错误 (${response.status})`;
+    try {
+      const j = JSON.parse(errText);
+      errMsg = j?.error?.message ?? errMsg;
+    } catch { /* ignore */ }
+    if (response.status === 401) errMsg = 'API Key 无效，请在设置里检查';
+    if (response.status === 429) errMsg = '账户余额不足或请求太频繁，请稍后重试';
+    throw new Error(errMsg);
   }
 
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let full = '';
+  onStatus('解析规划结果...');
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  const data = await response.json();
+  const raw = data.choices?.[0]?.message?.content ?? '';
+  if (!raw) throw new Error('AI 返回为空，请重试');
 
-    const chunk = decoder.decode(value, { stream: true });
-    const lines = chunk.split('\n');
+  const jsonStr = extractJson(raw);
+  const parsed = JSON.parse(jsonStr);
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') continue;
+  const phases: Phase[] = ((parsed.phases ?? []) as Record<string, unknown>[]).map(p => ({
+    title: String(p.title ?? ''),
+    startDay: Number(p.startDay ?? 1),
+    endDay: Number(p.endDay ?? 1),
+    description: String(p.description ?? ''),
+  }));
 
-      try {
-        const json = JSON.parse(data);
-        const delta = json.choices?.[0]?.delta?.content ?? '';
-        if (delta) {
-          full += delta;
-          onChunk(full);
-        }
-      } catch {
-        // partial chunk, ignore
-      }
-    }
-  }
+  const days: Day[] = ((parsed.days ?? []) as Record<string, unknown>[]).map(d => ({
+    dayNum: Number(d.day ?? 1),
+    phase: String(d.phase ?? ''),
+    minTasks: ((d.minTasks ?? []) as Record<string, unknown>[]).map((t): DailyTask => ({
+      id: uid(),
+      title: String(t.title ?? ''),
+      estimatedMinutes: Number(t.estimatedMinutes ?? 15),
+      completed: false,
+      isBonus: false,
+    })),
+    bonusTasks: ((d.bonusTasks ?? []) as Record<string, unknown>[]).map((t): DailyTask => ({
+      id: uid(),
+      title: String(t.title ?? ''),
+      estimatedMinutes: Number(t.estimatedMinutes ?? 15),
+      completed: false,
+      isBonus: true,
+    })),
+  }));
 
-  // Extract JSON from response (handle potential markdown code blocks)
-  const jsonMatch = full.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('AI 返回格式异常，请重试');
-
-  const parsed = JSON.parse(jsonMatch[0]);
-  return {
-    title: String(parsed.title ?? taskTitle),
-    subtasks: parseSubtasks(parsed.subtasks ?? []),
-  };
+  return { title: String(parsed.title ?? title), phases, days };
 }

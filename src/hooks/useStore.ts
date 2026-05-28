@@ -79,10 +79,29 @@ export function useStore() {
               };
             }),
           };
-          const allDone = updated.days.every(d =>
-            d.minTasks.every(t => t.completed)
-          );
+          const allDone = updated.days.every(d => d.minTasks.every(t => t.completed));
           return { ...updated, status: allDone ? 'completed' as const : 'active' as const };
+        }),
+      };
+      save(next);
+      return next;
+    });
+  }, []);
+
+  const setTaskUrl = useCallback((projectId: string, dayNum: number, taskId: string, url: string) => {
+    setStore(prev => {
+      const next = {
+        ...prev,
+        projects: prev.projects.map(p => {
+          if (p.id !== projectId) return p;
+          return {
+            ...p,
+            days: p.days.map(d => {
+              if (d.dayNum !== dayNum) return d;
+              const patchTask = (t: DailyTask) => t.id === taskId ? { ...t, resourceUrl: url || undefined } : t;
+              return { ...d, minTasks: d.minTasks.map(patchTask), bonusTasks: d.bonusTasks.map(patchTask) };
+            }),
+          };
         }),
       };
       save(next);
@@ -110,6 +129,7 @@ export function useStore() {
     deleteMaterial,
     addProject,
     completeTask,
+    setTaskUrl,
     deleteProject,
     setReminder,
   };
